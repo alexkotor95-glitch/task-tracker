@@ -54,7 +54,10 @@ async function call<T>(method: string, body: Record<string, string>): Promise<T>
 }
 
 export async function sendVerificationMessage(phone: string): Promise<SendResult> {
-  return call<SendResult>("sendVerificationMessage", { phone_number: phone });
+  return call<SendResult>("sendVerificationMessage", {
+    phone_number: phone,
+    code_length:  "6",
+  });
 }
 
 export async function checkVerificationStatus(
