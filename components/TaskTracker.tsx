@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import TaskItem from "./TaskItem";
 import EisenhowerMatrix from "./EisenhowerMatrix";
 import CategoryStrip from "./CategoryStrip";
@@ -136,6 +137,16 @@ function CategoryDropdown({ categories, value, onChange }: CategoryDropdownProps
 
 export default function TaskTracker() {
   const { data: session } = useSession();
+  const router = useRouter();
+
+  async function handleSignOut() {
+    // Clear phone session cookie if present
+    await fetch("/api/auth/phone/logout", { method: "POST" });
+    // Also sign out of NextAuth (no-op if not logged in via email)
+    await signOut({ redirect: false });
+    router.push("/login");
+    router.refresh();
+  }
 
   const [tasks, setTasks]           = useState<Task[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -338,13 +349,13 @@ export default function TaskTracker() {
 
           {/* User + signout */}
           <div className="flex-shrink-0 flex items-center gap-2 pt-1">
-            {session?.user?.email && (
+            {(session?.user?.email) && (
               <span className="text-xs text-gray-400 hidden sm:block truncate max-w-[140px]">
                 {session.user.email}
               </span>
             )}
             <button
-              onClick={() => signOut({ callbackUrl: "/login" })}
+              onClick={handleSignOut}
               title="Выйти"
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-gray-200 text-gray-400 hover:text-red-400 hover:border-red-200 hover:bg-red-50 text-xs transition-all duration-150"
             >
