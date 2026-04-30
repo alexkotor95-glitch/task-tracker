@@ -77,7 +77,7 @@ function EmailForm({ mode, onSwitch }: { mode: "login" | "register"; onSwitch: (
     setLoading(false);
 
     if (res?.error) { setError("Неверный email или пароль"); }
-    else { router.push("/"); router.refresh(); }
+    else { router.push("/app"); router.refresh(); }
   }
 
   return (
@@ -231,7 +231,7 @@ function PhoneForm() {
           setCode("");
         }
       } else {
-        router.push("/");
+        router.push("/app");
         router.refresh();
       }
     } catch {
@@ -359,7 +359,7 @@ export default function LoginPage() {
               />
             </svg>
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">Task Tracker</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Compass</h1>
         </div>
 
         {/* Tab bar */}

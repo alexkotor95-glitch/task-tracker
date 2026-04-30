@@ -3,8 +3,11 @@ import "./globals.css";
 import { SessionProvider } from "next-auth/react";
 
 export const metadata: Metadata = {
-  title: "Таск-трекер",
-  description: "Простой и удобный трекер задач",
+  title: {
+    default:  "Compass",
+    template: "%s | Compass",
+  },
+  description: "Простой таск-трекер с приоритетами, сроками и матрицей Эйзенхауэра.",
 };
 
 export default function RootLayout({
@@ -14,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
-      <body className="bg-gray-50 min-h-screen">
+      <body className="min-h-screen antialiased">
         <SessionProvider>{children}</SessionProvider>
       </body>
     </html>

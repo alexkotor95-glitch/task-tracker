@@ -144,7 +144,7 @@ export default function TaskTracker() {
     await fetch("/api/auth/phone/logout", { method: "POST" });
     // Also sign out of NextAuth (no-op if not logged in via email)
     await signOut({ redirect: false });
-    router.push("/login");
+    router.push("/");
     router.refresh();
   }
 
@@ -589,7 +589,7 @@ export default function TaskTracker() {
         )}
       </div>
 
-      <p className="text-center text-[10px] text-gray-300 mt-4">v2.0 · Task Tracker</p>
+      <p className="text-center text-[10px] text-gray-300 mt-4">v2.0 · Compass</p>
     </div>
   );
 }
