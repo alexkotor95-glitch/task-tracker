@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "task-tracker",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["start-dev.sh"],
+      "port": 3001
+    }
+  ]
+}
