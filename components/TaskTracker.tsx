@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useSession, signOut } from "next-auth/react";
 import TaskItem from "./TaskItem";
 import EisenhowerMatrix from "./EisenhowerMatrix";
 import CategoryStrip from "./CategoryStrip";
-import { Category, DEFAULT_CATEGORIES, CATEGORY_COLORS } from "@/lib/taskUtils";
+import { Category, CATEGORY_COLORS } from "@/lib/taskUtils";
 
 export type Priority = "high" | "medium" | "low";
 export type ViewMode = "list" | "matrix";
@@ -14,15 +15,13 @@ export interface Task {
   text: string;
   completed: boolean;
   priority: Priority;
-  dueDate?: string;     // "YYYY-MM-DD"
+  dueDate?: string;
   categoryId?: string;
   createdAt: number;
 }
 
 type Filter = "all" | "active" | "completed";
 
-const STORAGE_KEY = "task-tracker-tasks";
-const CATEGORIES_KEY = "task-tracker-categories";
 const PRIORITY_ORDER: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
 
 function sortTasks(tasks: Task[]): Task[] {
@@ -39,7 +38,7 @@ function sortTasks(tasks: Task[]): Task[] {
 
 const TODAY = new Date().toISOString().split("T")[0];
 
-// ─── Category dropdown in form ───────────────────────────────────────────────
+// ─── Category dropdown ────────────────────────────────────────────────────────
 
 interface CategoryDropdownProps {
   categories: Category[];
@@ -101,7 +100,11 @@ function CategoryDropdown({ categories, value, onChange }: CategoryDropdownProps
           >
             <span className="w-2 h-2 rounded-full bg-gray-300" />
             Без категории
-            {!value && <svg className="w-3 h-3 ml-auto text-gray-400" fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+            {!value && (
+              <svg className="w-3 h-3 ml-auto text-gray-400" fill="none" viewBox="0 0 12 12">
+                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
           </button>
 
           {categories.length > 0 && <div className="my-1 border-t border-gray-100" />}
@@ -116,7 +119,11 @@ function CategoryDropdown({ categories, value, onChange }: CategoryDropdownProps
             >
               <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
               {cat.name}
-              {value === cat.id && <svg className="w-3 h-3 ml-auto text-gray-400" fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+              {value === cat.id && (
+                <svg className="w-3 h-3 ml-auto text-gray-400" fill="none" viewBox="0 0 12 12">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
             </button>
           ))}
         </div>
@@ -128,91 +135,151 @@ function CategoryDropdown({ categories, value, onChange }: CategoryDropdownProps
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function TaskTracker() {
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const { data: session } = useSession();
+
+  const [tasks, setTasks]           = useState<Task[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [input, setInput] = useState("");
-  const [newPriority, setNewPriority] = useState<Priority>("medium");
-  const [newDueDate, setNewDueDate] = useState("");
+  const [loading, setLoading]       = useState(true);
+
+  const [input, setInput]               = useState("");
+  const [newPriority, setNewPriority]   = useState<Priority>("medium");
+  const [newDueDate, setNewDueDate]     = useState("");
   const [newCategoryId, setNewCategoryId] = useState<string | undefined>();
-  const [filter, setFilter] = useState<Filter>("all");
+
+  const [filter, setFilter]                     = useState<Filter>("all");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
-  const [mounted, setMounted] = useState(false);
+  const [viewMode, setViewMode]                 = useState<ViewMode>("list");
+
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  // ── Load data from API ──
+  const loadData = useCallback(async () => {
+    setLoading(true);
     try {
-      const storedTasks = localStorage.getItem(STORAGE_KEY);
-      if (storedTasks) {
-        const parsed: Task[] = JSON.parse(storedTasks);
-        setTasks(parsed.map((t) => ({ ...t, priority: (t.priority ?? "medium") as Priority })));
-      }
-
-      const storedCats = localStorage.getItem(CATEGORIES_KEY);
-      setCategories(storedCats ? JSON.parse(storedCats) : DEFAULT_CATEGORIES);
-    } catch {}
-    setMounted(true);
+      const [tasksRes, catsRes] = await Promise.all([
+        fetch("/api/tasks"),
+        fetch("/api/categories"),
+      ]);
+      if (tasksRes.ok) setTasks(await tasksRes.json());
+      if (catsRes.ok)  setCategories(await catsRes.json());
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (mounted) localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-  }, [tasks, mounted]);
-
-  useEffect(() => {
-    if (mounted) localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
-  }, [categories, mounted]);
+    loadData();
+  }, [loadData]);
 
   // ── Task CRUD ──
-  const addTask = () => {
+  const addTask = async () => {
     const text = input.trim();
     if (!text) return;
-    setTasks((prev) => [
-      { id: crypto.randomUUID(), text, completed: false, priority: newPriority, dueDate: newDueDate || undefined, categoryId: newCategoryId, createdAt: Date.now() },
-      ...prev,
-    ]);
+
+    const task: Task = {
+      id:         crypto.randomUUID(),
+      text,
+      completed:  false,
+      priority:   newPriority,
+      dueDate:    newDueDate || undefined,
+      categoryId: newCategoryId,
+      createdAt:  Date.now(),
+    };
+
+    // Optimistic update
+    setTasks((prev) => [task, ...prev]);
     setInput("");
     setNewDueDate("");
     inputRef.current?.focus();
+
+    try {
+      await fetch("/api/tasks", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(task),
+      });
+    } catch {
+      // Rollback on error
+      setTasks((prev) => prev.filter((t) => t.id !== task.id));
+    }
   };
 
-  const toggleTask = (id: string) =>
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)));
+  const toggleTask = async (id: string) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    const completed = !task.completed;
 
-  const deleteTask = (id: string) =>
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, completed } : t)));
+    await fetch(`/api/tasks/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ completed }),
+    });
+  };
+
+  const deleteTask = async (id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
+    await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+  };
 
-  const changePriority = (id: string, priority: Priority) =>
+  const changePriority = async (id: string, priority: Priority) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, priority } : t)));
+    await fetch(`/api/tasks/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ priority }),
+    });
+  };
 
-  const changeDueDate = (id: string, dueDate: string | undefined) =>
+  const changeDueDate = async (id: string, dueDate: string | undefined) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, dueDate } : t)));
+    await fetch(`/api/tasks/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ dueDate: dueDate ?? null }),
+    });
+  };
 
-  const changeCategory = (id: string, categoryId: string | undefined) =>
+  const changeCategory = async (id: string, categoryId: string | undefined) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, categoryId } : t)));
+    await fetch(`/api/tasks/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ categoryId: categoryId ?? null }),
+    });
+  };
 
-  const clearCompleted = () => setTasks((prev) => prev.filter((t) => !t.completed));
+  const clearCompleted = async () => {
+    setTasks((prev) => prev.filter((t) => !t.completed));
+    await fetch("/api/tasks", { method: "DELETE" });
+  };
 
   // ── Category CRUD ──
-  const addCategory = (name: string, color: string) => {
-    const next = CATEGORY_COLORS[(categories.length) % CATEGORY_COLORS.length];
-    setCategories((prev) => [...prev, { id: crypto.randomUUID(), name, color: color || next }]);
+  const addCategory = async (name: string, color: string) => {
+    const next = CATEGORY_COLORS[categories.length % CATEGORY_COLORS.length];
+    const cat: Category = { id: crypto.randomUUID(), name, color: color || next };
+    setCategories((prev) => [...prev, cat]);
+    await fetch("/api/categories", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(cat),
+    });
   };
 
-  const deleteCategory = (id: string) => {
+  const deleteCategory = async (id: string) => {
     setCategories((prev) => prev.filter((c) => c.id !== id));
     setTasks((prev) => prev.map((t) => (t.categoryId === id ? { ...t, categoryId: undefined } : t)));
     if (selectedCategoryId === id) setSelectedCategoryId(null);
+    await fetch(`/api/categories/${id}`, { method: "DELETE" });
   };
 
   // ── Derived state ──
-  const totalCount = tasks.length;
+  const totalCount     = tasks.length;
   const completedCount = tasks.filter((t) => t.completed).length;
-  const activeCount = totalCount - completedCount;
-  const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+  const activeCount    = totalCount - completedCount;
+  const progress       = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+  const activeTasks    = tasks.filter((t) => !t.completed);
 
-  const activeTasks = tasks.filter((t) => !t.completed);
-
-  // Task counts per category (active only)
   const taskCounts: Record<string, number> = {};
   for (const cat of categories) {
     taskCounts[cat.id] = activeTasks.filter((t) => t.categoryId === cat.id).length;
@@ -220,7 +287,7 @@ export default function TaskTracker() {
 
   const filteredTasks = sortTasks(
     tasks.filter((t) => {
-      const matchesStatus = filter === "all" ? true : filter === "active" ? !t.completed : t.completed;
+      const matchesStatus   = filter === "all" ? true : filter === "active" ? !t.completed : t.completed;
       const matchesCategory = selectedCategoryId == null || t.categoryId === selectedCategoryId;
       return matchesStatus && matchesCategory;
     })
@@ -231,29 +298,62 @@ export default function TaskTracker() {
   );
 
   const priorityOptions: { value: Priority; label: string; activeClass: string; dotClass: string }[] = [
-    { value: "high",   label: "Высокий", activeClass: "bg-red-50 border-red-300 text-red-600",     dotClass: "bg-red-400"   },
+    { value: "high",   label: "Высокий", activeClass: "bg-red-50 border-red-300 text-red-600",      dotClass: "bg-red-400"   },
     { value: "medium", label: "Средний", activeClass: "bg-amber-50 border-amber-300 text-amber-600", dotClass: "bg-amber-400" },
-    { value: "low",    label: "Низкий",  activeClass: "bg-blue-50 border-blue-300 text-blue-500",   dotClass: "bg-blue-400"  },
+    { value: "low",    label: "Низкий",  activeClass: "bg-blue-50 border-blue-300 text-blue-500",    dotClass: "bg-blue-400"  },
   ];
 
   const filterButtons: { label: string; value: Filter; count: number }[] = [
-    { label: "Все",        value: "all",       count: totalCount       },
-    { label: "Активные",   value: "active",    count: activeCount      },
-    { label: "Выполненные",value: "completed", count: completedCount   },
+    { label: "Все",         value: "all",       count: totalCount     },
+    { label: "Активные",    value: "active",    count: activeCount    },
+    { label: "Выполненные", value: "completed", count: completedCount },
   ];
 
-  if (!mounted) return null;
+  // ── Loading skeleton ──
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
+          <p className="text-sm text-gray-400">Загрузка...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex flex-col items-center px-4 py-12">
       <div className={`w-full transition-all duration-300 ${viewMode === "matrix" ? "max-w-2xl" : "max-w-lg"}`}>
 
         {/* Header */}
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-semibold text-gray-800 tracking-tight mb-1">Мои задачи</h1>
-          <p className="text-sm text-gray-400">
-            {totalCount === 0 ? "Добавьте первую задачу" : `Выполнено ${completedCount} из ${totalCount}`}
-          </p>
+        <div className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold text-gray-800 tracking-tight mb-1">Мои задачи</h1>
+            <p className="text-sm text-gray-400">
+              {totalCount === 0
+                ? "Добавьте первую задачу"
+                : `Выполнено ${completedCount} из ${totalCount}`}
+            </p>
+          </div>
+
+          {/* User + signout */}
+          <div className="flex-shrink-0 flex items-center gap-2 pt-1">
+            {session?.user?.email && (
+              <span className="text-xs text-gray-400 hidden sm:block truncate max-w-[140px]">
+                {session.user.email}
+              </span>
+            )}
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              title="Выйти"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-gray-200 text-gray-400 hover:text-red-400 hover:border-red-200 hover:bg-red-50 text-xs transition-all duration-150"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 16 16">
+                <path d="M10 3l4 4-4 4M14 7H6M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="hidden sm:inline">Выйти</span>
+            </button>
+          </div>
         </div>
 
         {/* Progress bar */}
@@ -264,7 +364,10 @@ export default function TaskTracker() {
               <span>{activeCount} осталось</span>
             </div>
             <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-400 rounded-full transition-all duration-500 ease-out" style={{ width: `${progress}%` }} />
+              <div
+                className="h-full bg-emerald-400 rounded-full transition-all duration-500 ease-out"
+                style={{ width: `${progress}%` }}
+              />
             </div>
           </div>
         )}
@@ -295,7 +398,6 @@ export default function TaskTracker() {
 
           {/* Date + Priority + Category */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 pb-3">
-            {/* Date */}
             <div className="flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 14 14">
                 <rect x="1" y="2.5" width="12" height="10.5" rx="2" stroke="currentColor" strokeWidth="1.2" />
@@ -319,14 +421,15 @@ export default function TaskTracker() {
 
             <div className="w-px h-4 bg-gray-200" />
 
-            {/* Priority */}
             <div className="flex gap-1.5">
               {priorityOptions.map(({ value, label, activeClass, dotClass }) => (
                 <button
                   key={value}
                   onClick={() => setNewPriority(value)}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all duration-150 ${
-                    newPriority === value ? activeClass : "border-gray-200 text-gray-400 hover:text-gray-600 hover:border-gray-300"
+                    newPriority === value
+                      ? activeClass
+                      : "border-gray-200 text-gray-400 hover:text-gray-600 hover:border-gray-300"
                   }`}
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${newPriority === value ? dotClass : "bg-gray-300"}`} />
@@ -337,7 +440,6 @@ export default function TaskTracker() {
 
             {categories.length > 0 && <div className="w-px h-4 bg-gray-200" />}
 
-            {/* Category */}
             {categories.length > 0 && (
               <CategoryDropdown
                 categories={categories}
@@ -355,7 +457,9 @@ export default function TaskTracker() {
               onClick={() => setViewMode("list")}
               aria-label="Режим списка"
               title="Список"
-              className={`p-1.5 rounded-lg transition-all duration-150 ${viewMode === "list" ? "bg-white shadow-sm text-gray-800" : "text-gray-400 hover:text-gray-600"}`}
+              className={`p-1.5 rounded-lg transition-all duration-150 ${
+                viewMode === "list" ? "bg-white shadow-sm text-gray-800" : "text-gray-400 hover:text-gray-600"
+              }`}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 16 16">
                 <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -365,7 +469,9 @@ export default function TaskTracker() {
               onClick={() => setViewMode("matrix")}
               aria-label="Матрица Эйзенхауэра"
               title="Матрица Эйзенхауэра"
-              className={`p-1.5 rounded-lg transition-all duration-150 ${viewMode === "matrix" ? "bg-white shadow-sm text-gray-800" : "text-gray-400 hover:text-gray-600"}`}
+              className={`p-1.5 rounded-lg transition-all duration-150 ${
+                viewMode === "matrix" ? "bg-white shadow-sm text-gray-800" : "text-gray-400 hover:text-gray-600"
+              }`}
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 16 16">
                 <rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
@@ -383,12 +489,16 @@ export default function TaskTracker() {
                   key={value}
                   onClick={() => setFilter(value)}
                   className={`flex-1 py-1.5 px-2 rounded-lg text-sm font-medium transition-all duration-150 flex items-center justify-center gap-1.5 ${
-                    filter === value ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                    filter === value
+                      ? "bg-white text-gray-800 shadow-sm"
+                      : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
                   {label}
                   {count > 0 && (
-                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${filter === value ? "bg-gray-100 text-gray-600" : "bg-gray-200 text-gray-500"}`}>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                      filter === value ? "bg-gray-100 text-gray-600" : "bg-gray-200 text-gray-500"
+                    }`}>
                       {count}
                     </span>
                   )}
@@ -413,7 +523,7 @@ export default function TaskTracker() {
           onDelete={deleteCategory}
         />
 
-        {/* Content */}
+        {/* Task list or Matrix */}
         {viewMode === "list" ? (
           <div className="flex flex-col gap-2">
             {filteredTasks.length === 0 ? (
@@ -422,7 +532,11 @@ export default function TaskTracker() {
                   {filter === "completed" ? "🎉" : filter === "active" ? "✓" : "📋"}
                 </div>
                 <p className="text-sm">
-                  {filter === "completed" ? "Нет выполненных задач" : filter === "active" ? "Все задачи выполнены!" : "Список задач пуст"}
+                  {filter === "completed"
+                    ? "Нет выполненных задач"
+                    : filter === "active"
+                    ? "Все задачи выполнены!"
+                    : "Список задач пуст"}
                 </p>
               </div>
             ) : (
@@ -451,7 +565,7 @@ export default function TaskTracker() {
           />
         )}
 
-        {/* Footer */}
+        {/* Clear completed */}
         {completedCount > 0 && (
           <div className="mt-4 flex justify-end">
             <button
@@ -464,8 +578,7 @@ export default function TaskTracker() {
         )}
       </div>
 
-      {/* Footer */}
-      <p className="text-center text-[10px] text-gray-300 mt-4">v1.0 · Task Tracker</p>
+      <p className="text-center text-[10px] text-gray-300 mt-4">v2.0 · Task Tracker</p>
     </div>
   );
 }
