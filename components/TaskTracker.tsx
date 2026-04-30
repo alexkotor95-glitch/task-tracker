@@ -463,6 +463,9 @@ export default function TaskTracker() {
           </div>
         )}
       </div>
+
+      {/* Footer */}
+      <p className="text-center text-[10px] text-gray-300 mt-4">v1.0 · Task Tracker</p>
     </div>
   );
 }
