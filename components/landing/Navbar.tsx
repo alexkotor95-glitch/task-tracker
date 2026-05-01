@@ -1,58 +1,53 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { BrandMark } from "./icons/compass-graphics";
+import { ArrowRight, Sun, Moon } from "./icons/nav-icons";
 
 export default function Navbar() {
-  return (
-    <header className="fixed top-0 inset-x-0 z-50 border-b border-zinc-200/60 bg-white/80 backdrop-blur-md dark:border-zinc-800/60 dark:bg-zinc-950/80">
-      <nav
-        className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6"
-        aria-label="Главная навигация"
-      >
-        {/* Logo */}
-        <Link
-          href="/"
-          className="flex items-center gap-2 text-zinc-900 dark:text-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-md"
-          aria-label="Compass — на главную"
-        >
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 22 22"
-            fill="none"
-            aria-hidden="true"
-          >
-            <circle cx="11" cy="11" r="9.5" stroke="currentColor" strokeWidth="1.5" />
-            <path
-              d="M11 6.5L13.5 11L11 15.5L8.5 11L11 6.5Z"
-              fill="currentColor"
-              opacity="0.8"
-            />
-            <circle cx="11" cy="11" r="1.5" fill="currentColor" />
-          </svg>
-          <span className="text-[15px] font-semibold tracking-tight">Compass</span>
-        </Link>
+  const [scrolled, setScrolled] = useState(false);
+  const [dark, setDark] = useState(false);
 
-        {/* Right side */}
-        <div className="flex items-center gap-1 sm:gap-2">
-          <a
-            href="#features"
-            className="hidden sm:inline-flex items-center px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50 transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            Возможности
-          </a>
-          <Link
-            href="/login"
-            className="inline-flex items-center px-3 py-1.5 text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50 transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          >
-            Войти
-          </Link>
-          <Link
-            href="/login"
-            className="inline-flex items-center px-3.5 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 transition-all duration-150 hover:-translate-y-px hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
-          >
-            Начать
+  useEffect(() => {
+    const saved = localStorage.getItem("compass-dark");
+    if (saved === "1") {
+      setDark(true);
+      document.documentElement.classList.add("dark");
+    }
+    const onScroll = () => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const toggleDark = () => {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("compass-dark", next ? "1" : "0");
+  };
+
+  return (
+    <nav className={`lp-nav${scrolled ? " scrolled" : ""}`}>
+      <div className="lp-container lp-nav-inner">
+        <Link href="/" className="lp-brand">
+          <BrandMark size={26} />
+          <span>Compass</span>
+        </Link>
+        <div className="lp-nav-links">
+          <a href="#features">Возможности</a>
+          <a href="#journey">Как это работает</a>
+          <a href="#compare">Сравнение</a>
+          <Link href="/login">Войти</Link>
+          <button className="lp-theme-toggle" onClick={toggleDark} title="Переключить тему">
+            {dark ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+          <Link href="/login" className="lp-nav-cta">
+            Начать бесплатно <ArrowRight size={14} />
           </Link>
         </div>
-      </nav>
-    </header>
+      </div>
+    </nav>
   );
 }
